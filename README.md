@@ -19,7 +19,16 @@ Les ressources sont localisees par rapport au code : le lancement fonctionne
 meme depuis un autre dossier. Une session graphique est necessaire pour jouer.
 L'absence de peripherique audio n'empeche pas de jouer.
 
-## Commandes
+## Menu original
+
+`main.py` conserve le menu historique : animations, couleurs neon, image
+Evangelion, lecteur musical et boutons New Game / Load / Lab / Quit.
+Cliquez sur **New Game**, puis choisissez **Shooter** pour ouvrir le jeu ameliore.
+Load et Lab restent des options non implementees du menu original.
+F11 bascule le menu en plein ecran. Pour passer les animations de demarrage :
+`python main.py --skip-intro`.
+
+## Commandes du shooter
 
 - Entree : commencer ou rejouer.
 - Fleches, ZQSD ou WASD : deplacement.
