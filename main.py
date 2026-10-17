@@ -7,6 +7,7 @@ import pygame
 
 from engine.game import variable
 from engine.game.shooter import Game
+from engine.game.assets import ResourceLoader, CombatAssets
 from engine.game.storage import Profile, DIFFICULTIES, ACHIEVEMENTS
 
 ROOT = Path(__file__).resolve().parent
@@ -21,38 +22,41 @@ PINK = (241, 112, 172)
 
 
 class Menu:
-    def __init__(self, skip_intro=False, data_directory=None):
-        pygame.init()
+    def __init__(self, skip_intro=False, data_directory=None, fullscreen=True):
+        pygame.display.init()
+        pygame.font.init()
         desktop = pygame.display.get_desktop_sizes()[0]
-        self.window = pygame.display.set_mode(
-            (min(SIZE[0], desktop[0]), min(SIZE[1], desktop[1])), pygame.RESIZABLE)
+        self.window_size = (min(SIZE[0], desktop[0]), min(SIZE[1], desktop[1]))
+        self.fullscreen = fullscreen
+        self.window = pygame.display.set_mode((0, 0) if fullscreen else self.window_size,
+                                              pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE)
         pygame.display.set_caption('NERV Crisis / Pilot terminal')
         self.canvas = pygame.Surface(SIZE)
         self.logo = pygame.image.load(str(variable.ASSETS / 'images/icon.png')).convert_alpha()
         pygame.display.set_icon(self.logo)
-        self.logo_small = pygame.transform.smoothscale(self.logo, (44, 44))
-        # Keep the supplied illustration square, without stretching or cropping it.
-        art = pygame.image.load(str(variable.ASSETS / 'images/evangelion.png')).convert_alpha()
-        self.art = pygame.transform.smoothscale(art, (384, 384))
-        self.fonts = {size: pygame.font.Font(variable.pixel_font, size) for size in (16, 20, 28, 52, 62)}
-        self.body_fonts = {size: pygame.font.Font(None, size) for size in (20, 24, 28, 32)}
+        self.splash_logo = pygame.transform.smoothscale(self.logo, (440, 440))
+        self.bootstrap_font = pygame.font.Font(None, 28)
+        self.logo_small = None
+        self.art = None
+        self.combat_assets = None
+        self.fonts = {}
+        self.body_fonts = {}
         self.clock = pygame.time.Clock()
         self.running = True
         self.selected = 0
         self.modal = None
         self.modal_selected = 0
-        self.profile = Profile(data_directory)
-        self.music_paused = self.profile.settings['music_paused']
-        self.volume = self.profile.settings['volume']
-        self.effects = self.profile.settings['effects']
-        self.difficulty = self.profile.settings['difficulty']
+        self.data_directory = data_directory
+        self.profile = None
+        self.music_paused = False
+        self.volume = .6
+        self.effects = True
+        self.difficulty = 'normal'
         self.settings_dirty = False
         self.dragging_volume = False
-        self.fullscreen = False
-        self.window_size = self.window.get_size()
         self.game = None
-        self.notice = self.profile.error
-        self.notice_until = pygame.time.get_ticks() + 6000 if self.notice else 0
+        self.notice = ''
+        self.notice_until = 0
         self.intro = not skip_intro
         self.intro_elapsed = 0.0
         self.time = 0.0
@@ -61,22 +65,77 @@ class Menu:
         self.slider = pygame.Rect(308, 354, 664, 24)
         self.close_rect = pygame.Rect(920, 194, 52, 44)
         self.modal_buttons = [pygame.Rect(308, 490, 316, 64), pygame.Rect(656, 490, 316, 64)]
-        self.audio_available = pygame.mixer.get_init() is not None
+        self.audio_available = False
         self.hover_sound = None
         self.click_sound = None
+        self.background = None
+        self.loader = ResourceLoader([
+            ('Read pilot profile', self.load_profile),
+            ('Load interface fonts', self.load_fonts),
+            ('Decode original artwork', self.load_art),
+            ('Prepare combat graphics', self.load_combat_assets),
+            ('Initialize soundtrack', self.load_music),
+            ('Decode sound effects', self.load_sounds),
+            ('Build terminal background', self.load_background),
+        ])
+        if skip_intro:
+            # Even when the splash is skipped, show real loading progress.
+            while self.running and not self.loader.ready and not self.loader.error:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.running = False
+                self.draw_loading()
+                self.present()
+                self.loader.step()
+            self.draw_loading()
+            self.present()
+
+    def load_profile(self):
+        self.profile = Profile(self.data_directory)
+        self.music_paused = self.profile.settings['music_paused']
+        self.volume = self.profile.settings['volume']
+        self.effects = self.profile.settings['effects']
+        self.difficulty = self.profile.settings['difficulty']
+        if self.profile.error:
+            self.notify(self.profile.error)
+
+    def load_fonts(self):
+        self.fonts = {size: pygame.font.Font(variable.pixel_font, size) for size in (16, 20, 28, 32, 52, 62)}
+        self.body_fonts = {size: pygame.font.Font(None, size) for size in (20, 24, 28, 32)}
+
+    def load_art(self):
+        self.source_art = pygame.image.load(str(variable.ASSETS / 'images/evangelion.png')).convert_alpha()
+        self.art = pygame.transform.smoothscale(self.source_art, (384, 384))
+        self.logo_small = pygame.transform.smoothscale(self.logo, (44, 44))
+
+    def load_combat_assets(self):
+        self.combat_assets = CombatAssets.load(self.source_art, self.fonts[32])
+
+    def load_music(self):
+        try:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            pygame.mixer.music.load(variable.opening_music)
+            pygame.mixer.music.set_volume(self.volume)
+            pygame.mixer.music.play(-1)
+            self.audio_available = True
+            self.sync_music()
+        except (pygame.error, OSError):
+            # Audio is optional; the other resources and gameplay still load.
+            self.audio_available = False
+
+    def load_sounds(self):
         if self.audio_available:
             try:
-                pygame.mixer.music.load(variable.opening_music)
-                pygame.mixer.music.set_volume(self.volume)
-                pygame.mixer.music.play(-1)
                 self.hover_sound = pygame.mixer.Sound(variable.over_soundeffect)
                 self.click_sound = pygame.mixer.Sound(variable.start_soundeffect)
                 self.hover_sound.set_volume(.25)
                 self.click_sound.set_volume(.35)
-            except pygame.error:
-                self.audio_available = False
+            except (pygame.error, OSError):
+                self.hover_sound = self.click_sound = None
+
+    def load_background(self):
         self.background = self.make_background()
-        self.sync_music()
 
     def make_background(self):
         surface = pygame.Surface(SIZE)
@@ -105,7 +164,7 @@ class Menu:
 
     def present(self):
         rect = self.viewport()
-        self.window.fill((3, 6, 12))
+        self.window.fill((0, 0, 0) if self.intro else (3, 6, 12))
         pygame.transform.smoothscale(self.canvas, rect.size, self.window.subsurface(rect))
         pygame.display.flip()
 
@@ -167,6 +226,9 @@ class Menu:
         self.modal_selected = 1 if kind == 'quit' else 0
         self.dragging_volume = False
 
+    def active_modal_buttons(self):
+        return [pygame.Rect(308, 490, 664, 64)] if self.modal == 'help' else self.modal_buttons
+
     def activate(self, index):
         self.sound(self.click_sound)
         self.open_modal(('selector', 'load', 'lab', 'quit')[index])
@@ -186,14 +248,17 @@ class Menu:
         self.notice_until = pygame.time.get_ticks() + 5000
 
     def launch_game(self, resume=False):
+        if not self.loader.ready:
+            return
         game = Game(self.canvas, difficulty=self.difficulty,
-                    best=self.profile.highscores[self.difficulty], effects=self.effects)
+                    best=self.profile.highscores[self.difficulty], effects=self.effects,
+                    assets=self.combat_assets)
         if resume:
             try:
                 game.restore(self.profile.saved_game)
                 game.best = self.profile.highscores[game.difficulty]
             except ValueError:
-                self.notify('Sauvegarde incompatible ou endommagée. Lancez une nouvelle partie.')
+                self.notify('Save is incompatible or damaged. Start a new game.')
                 self.modal = None
                 return
         self.game = game
@@ -220,14 +285,14 @@ class Menu:
             self.game.reported = False
             if self.profile.record(self.game):
                 self.game = None
-                self.notify('Partie sauvegardée. Utilisez Load pour reprendre.')
+                self.notify('Mission saved. Select Load to continue.')
             else:
                 self.profile.saved_game = previous
                 self.notify(self.profile.error)
         elif action == 'menu':
             saved = self.record_game()
             self.game = None
-            self.notify('Retour au terminal. Records et succès enregistrés.' if saved else self.profile.error)
+            self.notify('Back at the terminal. Records and achievements saved.' if saved else self.profile.error)
 
     def cycle_difficulty(self, step):
         names = list(DIFFICULTIES)
@@ -248,7 +313,7 @@ class Menu:
         score = data.get('score')
         wave = wave if type(wave) is int and 1 <= wave <= 100000 else '?'
         score = score if type(score) is int and 0 <= score <= 1_000_000_000 else '?'
-        return f'Vague {wave} / Score {score}'
+        return f'Wave {wave} / Score {score}'
 
     def modal_action(self, index):
         if self.modal == 'quit':
@@ -279,6 +344,13 @@ class Menu:
             return
         if event.type == pygame.WINDOWFOCUSLOST:
             self.dragging_volume = False
+        if not self.intro and not self.loader.ready:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.running = False
+                elif event.key == pygame.K_r:
+                    self.loader.retry()
+            return
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F11:
                 self.fullscreen = not self.fullscreen
@@ -290,6 +362,14 @@ class Menu:
             if self.intro:
                 if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
                     self.intro = False
+                return
+            if event.key == pygame.K_h:
+                if self.game and self.game.state == 'playing':
+                    self.game.state = 'paused'
+                if self.modal == 'help':
+                    self.modal = None
+                else:
+                    self.open_modal('help')
                 return
             if event.key == pygame.K_m:
                 self.toggle_music()
@@ -312,7 +392,7 @@ class Menu:
                 elif self.modal == 'lab' and event.key in (pygame.K_LEFT, pygame.K_RIGHT):
                     self.set_volume(self.volume + (.1 if event.key == pygame.K_RIGHT else -.1))
                 elif event.key in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN, pygame.K_TAB):
-                    self.modal_selected = 1 - self.modal_selected
+                    self.modal_selected = (self.modal_selected + 1) % len(self.active_modal_buttons())
                 elif event.key == pygame.K_RETURN:
                     self.modal_action(self.modal_selected)
             elif event.key in (pygame.K_UP, pygame.K_DOWN, pygame.K_TAB):
@@ -358,7 +438,7 @@ class Menu:
                         self.difficulty = name
                         self.settings_dirty = True
             else:
-                for index, rect in enumerate(self.modal_buttons):
+                for index, rect in enumerate(self.active_modal_buttons()):
                     if rect.collidepoint(pos):
                         self.modal_selected = index
                         if click:
@@ -382,8 +462,12 @@ class Menu:
         self.time += dt
         if self.intro:
             self.intro_elapsed += dt
-            if self.intro_elapsed >= 3:
+            if self.intro_elapsed >= 2:
                 self.intro = False
+            return
+        if not self.loader.ready:
+            self.loader.step()
+            return
         if self.game and not self.modal:
             self.game.update(dt)
             if self.game.state == 'gameover':
@@ -399,6 +483,12 @@ class Menu:
         pygame.draw.line(self.canvas, BORDER, (64, 102), (1216, 102))
 
     def draw(self):
+        if self.intro:
+            self.draw_intro()
+            return
+        if not self.loader.ready:
+            self.draw_loading()
+            return
         if self.game:
             self.game.draw()
             if self.modal:
@@ -409,16 +499,13 @@ class Menu:
             return
         self.canvas.blit(self.background, (0, 0))
         self.draw_header()
-        if self.intro:
-            self.draw_intro()
-            return
-        self.text('OPÉRATIONS / 01', (64, 140), 20, CYAN)
+        self.text('OPERATIONS / 01', (64, 140), 20, CYAN)
         self.text('NERV', (60, 171), 62, pixel=True)
         self.text('CRISIS', (262, 171), 62, CYAN, pixel=True)
-        self.text('Prenez les commandes. Protégez la base.', (66, 252), 28, MUTED)
+        self.text('Take control. Defend the base.', (66, 252), 28, MUTED)
         names = ('New Game', 'Load', 'Lab', 'Quit')
-        descriptions = ('Déployer une nouvelle mission', 'Reprendre la dernière sauvegarde',
-                        'Réglages audio et commandes', 'Fermer le terminal')
+        descriptions = ('Deploy on a new mission', 'Continue your saved mission',
+                        'Audio, effects and controls', 'Close the terminal')
         for index, rect in enumerate(self.menu_rects):
             active = index == self.selected
             self.card(rect, (20, 43, 52) if active else PANEL, CYAN if active else BORDER)
@@ -442,17 +529,17 @@ class Menu:
             for x in (762, 770):
                 pygame.draw.rect(self.canvas, CYAN, (x, 678, 4, 16), border_radius=1)
         self.text("The Cruel Angel's Thesis", (802, 655), 28)
-        status = 'En pause' if self.music_paused else 'Lecture en boucle'
+        status = 'Paused' if self.music_paused else 'Playing on repeat'
         if not self.audio_available:
-            status = 'Sortie audio indisponible'
+            status = 'Audio output unavailable'
         self.text(status + '  ·  M : pause', (802, 691), 24, MUTED)
         for index in range(12):
             height = (7 + int(10 * (1 + math.sin(self.time * 4 + index)))) if not self.music_paused and self.audio_available else 4
             pygame.draw.rect(self.canvas, CYAN, (1136 + index * 4, 709 - height, 2, height))
-        self.text('SURVIE ARCADE / B : RECORDS ET SUCCÈS', (66, 698), 20, CYAN)
-        self.text(f'Record {self.profile.highscores[self.difficulty]:07d}  /  Succès {len(self.profile.achievements)}/{len(ACHIEVEMENTS)}', (66, 722), 24, MUTED)
+        self.text('ARCADE SURVIVAL / B : RECORDS & ACHIEVEMENTS', (66, 698), 20, CYAN)
+        self.text(f'Record {self.profile.highscores[self.difficulty]:07d}  /  Achievements {len(self.profile.achievements)}/{len(ACHIEVEMENTS)}', (66, 722), 24, MUTED)
         pygame.draw.line(self.canvas, BORDER, (64, 754), (1216, 754))
-        self.text('Flèches : choisir     Entrée  Valider     M  Musique     F11  Plein écran', (64, 770), 20, MUTED)
+        self.text('Arrows : select    Enter : confirm    M : music    H : help    F11 : fullscreen', (64, 770), 20, MUTED)
         self.text('© 2025 0-cyz-0', (1092, 770), 20, MUTED)
         if self.notice and pygame.time.get_ticks() < self.notice_until:
             self.card(pygame.Rect(224, 690, 832, 52), border=PINK)
@@ -461,61 +548,97 @@ class Menu:
             self.draw_modal()
 
     def draw_intro(self):
-        logo = pygame.transform.smoothscale(self.logo, (200, 200))
-        self.canvas.blit(logo, (540, 160))
-        self.text('NERV CRISIS', (426, 390), 52, CYAN, pixel=True)
-        self.paragraph('Initialisation du terminal de combat.\nCertains effets visuels peuvent gêner les personnes photosensibles.',
-                       pygame.Rect(350, 480, 580, 110), 28)
-        pygame.draw.rect(self.canvas, BORDER, (350, 612, 580, 4))
-        pygame.draw.rect(self.canvas, CYAN, (350, 612, int(580 * min(1, self.intro_elapsed / 3)), 4))
-        self.text('Entrée / Espace / clic : passer', (485, 660), 24, MUTED)
+        # Logo-only splash, matching the original black presentation.
+        self.canvas.fill((0, 0, 0))
+        fade_in = min(1, self.intro_elapsed / .6)
+        fade_out = min(1, max(0, (2 - self.intro_elapsed) / .6))
+        logo = self.splash_logo.copy()
+        logo.set_alpha(round(255 * min(fade_in, fade_out)))
+        self.canvas.blit(logo, logo.get_rect(center=(SIZE[0] // 2, SIZE[1] // 2 - 20)))
+        caption = self.bootstrap_font.render('A CYZ GAME', True, (170, 180, 190))
+        caption.set_alpha(logo.get_alpha())
+        self.canvas.blit(caption, caption.get_rect(center=(SIZE[0] // 2, 680)))
+
+    def draw_loading(self):
+        self.canvas.fill((0, 0, 0))
+        title = self.bootstrap_font.render('NERV / LOADING RESOURCES', True, CYAN)
+        self.canvas.blit(title, (320, 292))
+        rect = pygame.Rect(320, 370, 640, 6)
+        pygame.draw.rect(self.canvas, BORDER, rect, border_radius=3)
+        fill = rect.copy()
+        fill.w = round(rect.w * self.loader.progress)
+        pygame.draw.rect(self.canvas, PINK if self.loader.error else CYAN, fill, border_radius=3)
+        count = self.bootstrap_font.render(
+            f'{self.loader.completed} / {len(self.loader.jobs)} completed  ·  {round(self.loader.progress * 100)}%', True, TEXT)
+        self.canvas.blit(count, (320, 328))
+        label = ('Failed: ' if self.loader.error else 'Next: ') + self.loader.label
+        if self.loader.ready:
+            label = 'All resources ready'
+        status = self.bootstrap_font.render(label, True, PINK if self.loader.error else MUTED)
+        self.canvas.blit(status, (320, 410))
+        hint = 'R : retry    Esc : quit' if self.loader.error else 'Artwork, fonts and audio are being prepared. Esc : quit'
+        self.canvas.blit(self.bootstrap_font.render(hint, True, MUTED), (320, 472))
+        if self.loader.error:
+            # Keep long filesystem errors in the terminal rather than overflowing the screen.
+            detail = self.loader.error[:90]
+            self.canvas.blit(pygame.font.Font(None, 22).render(detail, True, MUTED), (160, 532))
 
     def draw_modal(self):
         shade = pygame.Surface(SIZE, pygame.SRCALPHA)
         shade.fill((2, 6, 14, 225))
         self.canvas.blit(shade, (0, 0))
         self.card(pygame.Rect(260, 170, 760, 460), (17, 27, 41), BORDER, 20)
-        titles = {'selector': 'CHOISIR UNE MISSION', 'lab': 'LAB / REGLAGES',
-                  'load': 'SAUVEGARDES', 'records': 'RECORDS / SUCCES', 'quit': 'QUITTER LE TERMINAL ?'}
+        titles = {'selector': 'SELECT A MISSION', 'lab': 'LAB / SETTINGS',
+                  'load': 'SAVED MISSION', 'records': 'RECORDS / ACHIEVEMENTS', 'help': 'PILOT FIELD GUIDE', 'quit': 'EXIT TERMINAL?'}
         self.text(titles[self.modal], (308, 211), 28, CYAN, pixel=True)
         self.card(self.close_rect, border=BORDER, radius=8)
         self.text('×', (937, 201), 32, MUTED)
         pygame.draw.line(self.canvas, BORDER, (308, 266), (972, 266))
-        if self.modal == 'records':
+        if self.modal == 'help':
+            lines = [('Move', 'Arrows / WASD / ZQSD'), ('Fire / auto-fire', 'Space / F'),
+                     ('Dash / AT Field pulse', 'Shift / C'), ('Pause / help', 'P or Esc / H'),
+                     ('Power-ups', '+ heal   S shield   R rapid   T triple   E energy'),
+                     ('Save progress', 'Pause > Save and menu; then Load to continue')]
+            for index, (action, key) in enumerate(lines):
+                y = 300 + index * 28
+                self.text(action, (308, y), 24, CYAN)
+                self.text(key, (532, y), 20, TEXT)
+            buttons = ('Back',)
+        elif self.modal == 'records':
             scores = self.profile.highscores
             self.text(f'Cadet {scores["cadet"]}  /  Normal {scores["normal"]}  /  Expert {scores["expert"]}', (308, 300), 24, CYAN)
             for index, (key, title) in enumerate(ACHIEVEMENTS.items()):
                 unlocked = key in self.profile.achievements
-                self.text(('[OK] ' if unlocked else '[  ] ') + title, (308, 340 + index * 26), 24, CYAN if unlocked else MUTED)
-            buttons = ('Nouvelle mission', 'Retour')
+                self.text(('[OK] ' if unlocked else '[  ] ') + title, (308, 330 + index * 24), 24, CYAN if unlocked else MUTED)
+            buttons = ('New mission', 'Back')
         elif self.modal == 'lab':
-            self.text('Volume de la musique', (308, 301), 28)
+            self.text('Music volume', (308, 301), 28)
             self.text(f'{round(self.volume * 100):3d} %', (902, 301), 28, CYAN)
             pygame.draw.rect(self.canvas, BORDER, (308, 364, 664, 4), border_radius=2)
             pygame.draw.rect(self.canvas, CYAN, (308, 364, round(664 * self.volume), 4), border_radius=2)
             pygame.draw.circle(self.canvas, CYAN, (308 + round(664 * self.volume), 366), 8)
-            self.text('Glissez le curseur ou utilisez gauche / droite.', (308, 400), 24, MUTED)
-            self.text('V : particules / effets  ' + ('ON' if self.effects else 'OFF'), (308, 439), 24, CYAN)
-            buttons = ('Musique : ' + ('pause' if self.music_paused else 'lecture'), 'Retour')
+            self.text('Drag the slider or use Left / Right.', (308, 400), 24, MUTED)
+            self.text('V : particles / effects  ' + ('ON' if self.effects else 'OFF'), (308, 439), 24, CYAN)
+            buttons = ('Music : ' + ('pause' if self.music_paused else 'playing'), 'Back')
         else:
             descriptions = {
-                'selector': 'SHOOTER / Défense de Tokyo-3\nBoss toutes les 5 vagues, bonus et combos. Choisissez votre difficulté avec gauche / droite.',
-                'load': (self.saved_summary() + '\nReprenez la mission sauvegardée. Les records et les succès sont conservés entre les sessions.' if self.profile.saved_game else 'Aucune partie sauvegardée.\nEn cours de partie, ouvrez Pause puis Sauvegarder et menu. Vos records sont toujours conservés.'),
-                'quit': 'Voulez-vous fermer NERV Crisis ?\nVous pourrez revenir au terminal en relançant le jeu.'}
+                'selector': 'SHOOTER / Defend Tokyo-3\nBosses every 5 waves, power-ups and combos. Choose a difficulty with Left / Right.',
+                'load': (self.saved_summary() + '\nContinue your saved mission. Records and achievements are kept between sessions.' if self.profile.saved_game else 'No saved mission.\nDuring a mission, open Pause then Save and menu. Your high scores are always kept.'),
+                'quit': 'Would you like to close NERV Crisis?\nYou can return to the terminal by launching the game again.'}
             self.paragraph(descriptions[self.modal], pygame.Rect(308, 305, 664, 145), 28)
             if self.modal == 'selector':
                 for index, name in enumerate(DIFFICULTIES):
                     rect = pygame.Rect(308 + index * 226, 414, 212, 46)
                     self.card(rect, border=CYAN if name == self.difficulty else BORDER, radius=8)
                     self.text(name.capitalize(), (rect.x + 20, rect.y + 14), 24, CYAN if name == self.difficulty else MUTED)
-            buttons = {'selector': ('Lancer Shooter', 'Retour'), 'load': ('Reprendre' if self.profile.saved_game else 'Nouvelle partie', 'Retour'),
-                       'quit': ('Quitter', 'Annuler')}[self.modal]
-        for index, (rect, title) in enumerate(zip(self.modal_buttons, buttons)):
+            buttons = {'selector': ('Launch Shooter', 'Back'), 'load': ('Continue' if self.profile.saved_game else 'New game', 'Back'),
+                       'quit': ('Quit', 'Cancel')}[self.modal]
+        for index, (rect, title) in enumerate(zip(self.active_modal_buttons(), buttons)):
             active = index == self.modal_selected
             self.card(rect, (22, 54, 58) if active else PANEL, CYAN if active else BORDER, 10)
             font = self.body_fonts[28]
             self.text(title, (rect.centerx - font.size(title)[0] // 2, rect.y + 21), 28, CYAN if active else TEXT)
-        self.text('Entrée : valider     Échap : retour', (308, 586), 24, MUTED)
+        self.text('Enter : confirm     Esc : back', (308, 586), 24, MUTED)
 
     def run(self):
         try:
@@ -535,8 +658,10 @@ class Menu:
 
 def main():
     parser = argparse.ArgumentParser(description='NERV Crisis')
-    parser.add_argument('--skip-intro', action='store_true', help='Ouvrir directement le menu')
-    Menu(skip_intro=parser.parse_args().skip_intro).run()
+    parser.add_argument('--skip-intro', action='store_true', help='Skip the logo splash (resources still load)')
+    parser.add_argument('--windowed', action='store_true', help='Start in a resizable window instead of fullscreen')
+    args = parser.parse_args()
+    Menu(skip_intro=args.skip_intro, fullscreen=not args.windowed).run()
 
 
 if __name__ == '__main__':

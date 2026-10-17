@@ -13,7 +13,7 @@ from main import Menu, SIZE
 class MenuTests(unittest.TestCase):
     def setUp(self):
         self.directory = TemporaryDirectory()
-        self.menu = Menu(skip_intro=True, data_directory=self.directory.name)
+        self.menu = Menu(skip_intro=True, data_directory=self.directory.name, fullscreen=False)
 
     def tearDown(self):
         pygame.quit()
@@ -62,7 +62,7 @@ class MenuTests(unittest.TestCase):
         self.key(pygame.K_RETURN)
         self.assertIsNone(self.menu.game)
         self.assertEqual(self.menu.profile.highscores['normal'], 1250)
-        reopened = Menu(skip_intro=True, data_directory=self.directory.name)
+        reopened = Menu(skip_intro=True, data_directory=self.directory.name, fullscreen=False)
         reopened.activate(1)
         reopened.modal_action(0)
         self.assertEqual(reopened.game.score, 1250)
@@ -142,7 +142,7 @@ class MenuTests(unittest.TestCase):
         self.key(pygame.K_SPACE)
         self.assertFalse(self.menu.intro)
         self.menu.draw()
-        for modal in ('selector', 'lab', 'load', 'quit', 'records'):
+        for modal in ('selector', 'lab', 'load', 'quit', 'records', 'help'):
             self.menu.open_modal(modal)
             self.menu.draw()
             self.menu.present()
@@ -168,7 +168,7 @@ class MenuTests(unittest.TestCase):
         self.key(pygame.K_v)
         self.assertFalse(self.menu.effects)
         self.key(pygame.K_ESCAPE)
-        reopened = Menu(skip_intro=True, data_directory=self.directory.name)
+        reopened = Menu(skip_intro=True, data_directory=self.directory.name, fullscreen=False)
         self.assertEqual(reopened.difficulty, 'expert')
         self.assertFalse(reopened.effects)
 
@@ -182,6 +182,20 @@ class MenuTests(unittest.TestCase):
             return rect
         with patch.object(self.menu, 'text', side_effect=checked):
             self.menu.draw()
-            for modal in ('selector', 'load', 'lab', 'quit', 'records'):
+            for modal in ('selector', 'load', 'lab', 'quit', 'records', 'help'):
                 self.menu.open_modal(modal)
                 self.menu.draw_modal()
+
+    def test_help_pauses_mission_and_closes_without_resuming(self):
+        self.menu.launch_game()
+        self.key(pygame.K_h)
+        self.assertEqual(self.menu.modal, 'help')
+        self.assertEqual(self.menu.game.state, 'paused')
+        elapsed = self.menu.game.elapsed
+        self.menu.update(.1)
+        self.assertEqual(self.menu.game.elapsed, elapsed)
+        self.key(pygame.K_RETURN)
+        self.assertIsNone(self.menu.modal)
+        self.assertEqual(self.menu.game.state, 'paused')
+        self.key(pygame.K_p)
+        self.assertEqual(self.menu.game.state, 'playing')

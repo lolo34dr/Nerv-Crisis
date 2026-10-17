@@ -1,12 +1,12 @@
 # Nerv : Crisis
 
-Un jeu d’arcade spatial en Python/Pygame. Défendez Tokyo-3 et survivez aux
-vagues, dans une seule fenêtre du menu jusqu’à la fin de partie. L’illustration
-Evangelion, le logo, la police pixel et la bande-son d’origine sont conservés.
+An English-language arcade shooter built with Python and Pygame. Defend Tokyo-3
+against enemy waves and Angels. The original Evangelion artwork, NERV logo,
+pixel font, music and sound effects are retained.
 
-## Installer et jouer
+## Install and launch
 
-Python 3.12 recommandé.
+Python 3.12 is recommended.
 
 ```sh
 python -m venv .venv
@@ -15,101 +15,122 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Sous Windows, activez avec `.venv\Scripts\activate`.
-Une session graphique est nécessaire pour jouer. Le jeu fonctionne sans
-périphérique audio. Les ressources sont localisées par rapport au code :
-le lancement fonctionne depuis un autre dossier.
+On Windows, activate with `.venv\Scripts\activate`.
+A graphical session is required. Audio hardware is optional. Resources are
+resolved relative to the source files, so launching from another directory works.
 
-## Menu et fenêtre
+The game starts **fullscreen by default**, using the current display resolution.
+**F11** switches between fullscreen and a resizable window. To start windowed:
 
-- **New Game** : choisir Cadet, Normal ou Expert, puis lancer la mission.
-- **Load** : reprendre la dernière partie sauvegardée, en pause.
-- **Lab** : volume, pause de la musique et particules activables avec **V**.
-- **B** ou clic sur les records : consulter les records par difficulté et les cinq succès.
-- Navigation : souris, flèches et Entrée. Échap ferme les panneaux.
-- **M** : mettre la musique en pause/reprise, dans le menu comme en jeu.
-- **F11** : plein écran. La fenêtre se redimensionne en gardant les proportions
-  et les zones cliquables correctes.
+```sh
+python main.py --windowed
+```
 
-L’introduction de trois secondes se passe avec Entrée, Espace ou un clic.
-`python main.py --skip-intro` ouvre directement le terminal.
-Le combat utilise la même fenêtre, le même affichage et la même piste musicale :
-aucun sous-processus ni deuxième lecteur audio n’est lancé.
+## Startup: logo splash and real loading
 
-## Commandes en mission
+The original logo fades in and out on a black background. Enter, Space, Esc or a
+click skips this animation. `--skip-intro` also skips the splash.
 
-| Action | Commande |
+The subsequent loading screen prepares seven resource groups: profile, UI fonts,
+original artwork, cached combat graphics, soundtrack, sound effects and terminal
+background. Progress advances only after each operation finishes. There is no
+artificial loading countdown; a fast machine may finish quickly. Even when the
+splash is skipped, required resources must load before the menu can open.
+
+A required resource failure leaves the loading bar incomplete. Press **R** to
+retry or **Esc** to quit. Missing audio hardware is handled without blocking the
+other resources. Combat reuses the loaded images and fonts instead of decoding
+them again when a mission starts.
+
+## Terminal and controls
+
+- **New Game**: select Cadet, Normal or Expert, then launch the mission.
+- **Load**: continue the saved mission, initially paused.
+- **Lab**: music volume, playback and visual effects (**V**).
+- **B**, or click the records area: view high scores and six achievements.
+- **H**: open the pilot field guide, including movement, weapons and power-ups.
+- Navigate with the mouse, arrow keys and Enter. Esc closes a panel.
+- **M** pauses/resumes the music in both the terminal and combat.
+
+The terminal, gameplay, pause screens and settings share one window and one
+music player. Starting a mission never launches a second process or window.
+The image keeps its aspect ratio; letterboxing and click coordinates adapt to
+window size and fullscreen changes.
+
+| Action | Keys |
 | --- | --- |
-| Déplacer | Flèches, ZQSD ou WASD |
-| Tir continu | Maintenir Espace |
-| Tir automatique | F |
-| Esquive rapide et courte protection | Maj / Shift (recharge 2,2 s) |
-| Impulsion AT Field | C, quand l’énergie atteint 100 % |
-| Pause / reprise | P ou Échap |
-| Musique / plein écran | M / F11 |
+| Move | Arrows, WASD or ZQSD |
+| Continuous fire | Hold Space |
+| Toggle auto-fire | F |
+| Dash with brief protection | Shift (2.2 second cooldown) |
+| AT Field pulse | C, when energy is full |
+| Pause/resume | P or Esc |
+| Help | H (pauses an active mission) |
+| Music / fullscreen | M / F11 |
 
-Le jeu se met en pause à la perte de focus. Le menu pause permet de reprendre,
-de changer les réglages, de **sauvegarder et revenir au menu**, ou de revenir au
-menu sans sauvegarder la partie. La fin de partie propose de rejouer ou de
-revenir au menu. Ces écrans se pilotent aussi à la souris.
+Losing window focus pauses combat. Closing help/settings keeps the mission
+paused until you resume. The pause menu offers Resume, Settings, Save and menu,
+and Back to menu. The mission-over screen shows kills, pickups, defeated Angels,
+completed objectives, survival time, base health and your personal best.
 
-## Combat et progression
+## Waves, enemies and objectives
 
-- **Éclaireurs** : rapides, fragiles ; **zigzags** : trajectoires sinusoïdales ;
-  **canonniers** : résistants, tirs dirigés vers le joueur.
-- Un **boss Ange toutes les cinq vagues**, avec barre de vie, tirs en éventail
-  et une seconde phase plus agressive à mi-vie.
-- Détruisez tous les ennemis d’une vague pour progresser. Chaque nouvelle vague
-  répare 5 % de la base et recharge 10 % d’énergie. Un boss détruit répare 20 %.
-- Les ennemis qui franchissent la base lui retirent 10 %. Les impacts du joueur
-  coûtent une vie, sauf protection temporaire ou bouclier. Une base détruite ou
-  zéro vie termine la mission. Cadet commence avec cinq vies, les autres modes
-  avec trois ; les soins peuvent monter à cinq.
-- Les éliminations rapprochées montent un **combo jusqu’à x5**. Les points de
-  base sont 100 / 180 / 250 / 2 500 selon le type d’ennemi.
-- Une capsule tombe toutes les cinq éliminations ; les boss lâchent un soin.
-  **+** : vie, **S** : bouclier (maximum deux), **R** : tir rapide pendant 10 s,
-  **T** : triple tir pendant 10 s, **E** : +40 % d’énergie.
-- L’impulsion AT Field efface les projectiles adverses et inflige des dégâts
-  aux ennemis. Les éliminations rechargent aussi son énergie.
+- **Scouts** are fast and fragile. **Zigzags** move in a sinusoidal pattern.
+  **Gunners** have armor and aimed shots.
+- An **Angel boss appears every five waves**, with a health bar, spread shots,
+  and a faster second phase below half health.
+- Clear the wave to advance. Each new wave repairs 5% of the base and restores
+  10% energy; defeating an Angel repairs another 20%.
+- A base breach costs 10% base health. Player impacts cost one life unless a
+  shield or brief invulnerability absorbs them. Zero lives or base health ends
+  the mission. Cadet starts with five lives; other difficulties start with three.
+- Consecutive kills build a **combo up to x5**. Base kill scores are 100 / 180 /
+  250 / 2,500 depending on the enemy type.
+- Each wave has an additional objective: eliminate five targets, collect a
+  power-up, clear without a base breach, or defeat the Angel. Completing it
+  awards 300–1,000 points and 20% energy, once per wave. Objectives are optional:
+  failing one does not stop wave progression. Complete three to unlock a badge.
+- A capsule drops every five kills; Angels drop a heal. **+** restores one life
+  (up to five), **S** adds a shield (up to two), **R** grants ten seconds of rapid
+  fire, **T** grants ten seconds of triple shots, and **E** restores 40% energy.
+- The AT Field pulse clears hostile projectiles and damages enemies. Kills also
+  recharge its energy.
 
-## Sauvegardes et progression locale
+## Local saves and profile
 
-Un emplacement de sauvegarde conserve le combat : position, vague, ennemis,
-projectiles, bonus, score et temporisations. Les effets décoratifs et la suite
-aléatoire des futures apparitions ne sont pas conservés. **Load** restaure la
-partie en pause. Une nouvelle sauvegarde remplace la précédente ; une nouvelle
-partie ne l’efface pas. Fermer la fenêtre ne sauvegarde pas automatiquement
-la mission : utilisez **Pause → Sauvegarder et menu**.
+Use **Pause > Save and menu**, then **Load** to resume. The save preserves the
+player, wave, enemies, projectiles, power-ups, score, timers and objectives.
+Decorative particles and the random sequence of future spawns are not saved.
+Saves from the preceding release still load; their new objective counters start
+at zero. There is one save slot. Saving replaces it; starting a fresh mission
+keeps the existing slot. Closing the application records scores but does not
+automatically save the current mission.
 
-Les records par difficulté, succès et réglages sont stockés dans `profile.json` :
+High scores by difficulty, achievements and settings live in `profile.json`:
 
-- Linux : `$XDG_DATA_HOME/Nerv-Crisis`, sinon `~/.local/share/Nerv-Crisis`.
-- Windows : `%LOCALAPPDATA%\Nerv-Crisis`.
-- Pour choisir un autre dossier : variable `NERV_DATA_DIR`.
+- Linux: `$XDG_DATA_HOME/Nerv-Crisis`, or `~/.local/share/Nerv-Crisis`.
+- Windows: `%LOCALAPPDATA%\Nerv-Crisis`.
+- Override the folder with the `NERV_DATA_DIR` environment variable.
 
-Les écritures sont atomiques. Les données invalides sont refusées et les erreurs
-d’écriture sont signalées dans le jeu. Aucune donnée personnelle n’est envoyée
-à un service externe. Les fichiers du jeu et les anciennes versions restent
-séparés des données du joueur.
+Writes are atomic. Invalid save data is rejected and write errors are displayed.
+No player data is sent to an external service or written into the repository.
 
-## Vérifications
+## Validation
 
 ```sh
 python -m unittest discover -s tests -v
 ```
 
-Les tests utilisent les pilotes SDL sans écran et des profils temporaires.
-Ils couvrent le combat, les bonus, les boss, la pause, le retour au menu, les
-réglages, les zones cliquables après redimensionnement, les sauvegardes et leur
-restauration. Ils vérifient aussi qu’une mission ne crée ni fenêtre ni processus
-supplémentaire. L’affichage physique et le son réel restent à tester sur une
-machine avec écran et haut-parleurs.
+Tests use dummy SDL drivers and temporary profiles. They cover combat, bosses,
+power-ups, objectives, pause/help, saves, previous-save compatibility, resizing,
+fullscreen switching, asset caching, failed-loading retry and real loading
+progress. They also verify that a mission creates no additional window, process
+or music player. Physical fullscreen rendering and audible output should also
+be checked on a desktop machine.
 
-## Anciennes versions et licence
+## Historical versions and license
 
-Les sept versions historiques sont conservées dans [versions/](versions/README.md),
-avec leurs ressources et leur commit d’origine. Les améliorations suivantes
-restent également accessibles dans l’historique Git.
+The seven original snapshots, including their assets and commit references, are
+in [versions/](versions/README.md). Later changes remain in the Git history.
 
-Tous droits réservés. Projet de CYZ. Voir LICENSE.
+All rights reserved. Project by CYZ. See LICENSE.

@@ -6,9 +6,9 @@ from pathlib import Path
 import tempfile
 
 DIFFICULTIES = {'cadet': .75, 'normal': 1.0, 'expert': 1.35}
-ACHIEVEMENTS = {'first_blood': 'Premier contact', 'hunter': 'Chasseur : 25 ennemis',
-                'boss': 'Ange neutralisé', 'survivor': 'Vague 5 atteinte',
-                'score': 'Score de 5 000'}
+ACHIEVEMENTS = {'first_blood': 'First contact', 'hunter': 'Hunter: 25 enemies',
+                'boss': 'Angel defeated', 'survivor': 'Wave 5 reached',
+                'score': 'Score 5,000 points', 'objectives': 'Complete 3 wave objectives'}
 
 
 def data_directory():
@@ -57,7 +57,7 @@ class Profile:
             if isinstance(data.get('saved_game'), dict):
                 self.saved_game = data['saved_game']
         except (OSError, ValueError, TypeError):
-            self.error = 'Profil illisible : valeurs par défaut utilisées.'
+            self.error = 'Profile unreadable: using default settings.'
 
     def write(self):
         """Replace atomically so an interrupted write preserves the previous profile."""
@@ -76,7 +76,7 @@ class Profile:
             self.error = ''
             return True
         except (OSError, ValueError, TypeError):
-            self.error = 'Écriture impossible : vérifiez les droits du dossier de sauvegarde.'
+            self.error = 'Cannot write save data. Check your save folder permissions.'
             return False
         finally:
             if temporary is not None:
@@ -97,4 +97,6 @@ class Profile:
             self.achievements.add('survivor')
         if game.score >= 5000:
             self.achievements.add('score')
+        if game.objectives_completed >= 3:
+            self.achievements.add('objectives')
         return self.write()

@@ -145,7 +145,7 @@ class GameTests(unittest.TestCase):
     def test_combo_and_guaranteed_bonus_drop(self):
         for _ in range(5):
             self.game.kill(self.game.spawn('scout'))
-        self.assertEqual(self.game.score, 600)
+        self.assertEqual(self.game.score, 900)
         self.assertEqual(len(self.game.pickups), 1)
         self.game.combo_timer = .01
         self.game.update(.05, self.keys)
@@ -187,6 +187,44 @@ class GameTests(unittest.TestCase):
         for state in ('playing', 'paused', 'gameover'):
             self.game.state = state
             self.game.draw()
+
+    def test_objective_reward_only_once_and_old_save_compatibility(self):
+        for _ in range(5):
+            self.game.kill(self.game.spawn('scout'))
+        self.assertTrue(self.game.objective_done)
+        self.assertEqual(self.game.objectives_completed, 1)
+        score = self.game.score
+        self.game.check_objective('kill')
+        self.assertEqual(self.game.score, score)
+        current = self.game.snapshot()
+        restored = Game(self.game.screen)
+        restored.restore(current)
+        self.assertEqual(restored.objectives_completed, 1)
+        self.assertTrue(restored.objective_done)
+        old = dict(current)
+        for key in ('objectives_completed', 'objective_progress', 'objective_done', 'wave_breached'):
+            del old[key]
+        restored.restore(old)
+        self.assertEqual(restored.objectives_completed, 0)
+        self.assertEqual(restored.score, current['score'])
+
+    def test_defense_objective_fails_after_a_base_breach(self):
+        self.game.wave = 3
+        self.game.wave_breached = True
+        self.game.check_objective('clear')
+        self.assertFalse(self.game.objective_done)
+        self.game.wave_breached = False
+        self.game.check_objective('clear')
+        self.assertTrue(self.game.objective_done)
+        self.game.next_wave()
+        self.assertFalse(self.game.objective_done)
+        self.assertEqual(self.game.objective_progress, 0)
+
+    def test_supply_objective_completes_on_collection(self):
+        self.game.wave = 2
+        self.game.collect(Pickup(self.game.player.copy(), 'energy'))
+        self.assertTrue(self.game.objective_done)
+        self.assertEqual(self.game.objectives_completed, 1)
 
 
 if __name__ == '__main__':

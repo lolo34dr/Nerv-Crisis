@@ -6,7 +6,7 @@ import random
 import pygame
 
 from .storage import DIFFICULTIES
-from .variable import ASSETS, pixel_font
+from .assets import CombatAssets
 
 SIZE = (1280, 800)
 ARENA = pygame.Rect(36, 108, 872, 640)
@@ -47,18 +47,18 @@ class Pickup:
 
 
 class Game:
-    def __init__(self, surface, seed=None, difficulty='normal', best=0, effects=True):
+    def __init__(self, surface, seed=None, difficulty='normal', best=0, effects=True, assets=None):
         self.screen = surface
         self.rng = random.Random(seed)
         self.difficulty = difficulty
         self.factor = DIFFICULTIES[difficulty]
         self.best = best
         self.effects = effects
-        self.font = pygame.font.Font(None, 26)
-        self.small = pygame.font.Font(None, 22)
-        self.title_font = pygame.font.Font(pixel_font, 32)
-        art = pygame.image.load(str(ASSETS / 'images/evangelion.png')).convert_alpha()
-        self.art = pygame.transform.smoothscale(art, (232, 232))
+        self.assets = assets or CombatAssets.load()
+        self.font = self.assets.font
+        self.small = self.assets.small
+        self.title_font = self.assets.title
+        self.art = self.assets.art
         self.stars = [(self.rng.randrange(ARENA.left, ARENA.right),
                        self.rng.randrange(ARENA.top, ARENA.bottom), self.rng.uniform(12, 55)) for _ in range(75)]
         self.pause_rects = [pygame.Rect(284, 300 + i * 66, 376, 52) for i in range(4)]
@@ -93,16 +93,45 @@ class Game:
         self.kills = 0
         self.bosses_defeated = 0
         self.bonuses = 0
+        self.objectives_completed = 0
+        self.objective_progress = 0
+        self.objective_done = False
+        self.wave_breached = False
         self.autofire = False
         self.state = 'playing'
         self.selected = 0
-        self.banner = 'MISSION / DÉFENSE DE TOKYO-3'
+        self.banner = 'MISSION / DEFEND TOKYO-3'
         self.banner_timer = 3.0
         self.reported = False
 
     def message(self, text):
         self.banner = text
         self.banner_timer = 2.5
+
+    @property
+    def objective_kind(self):
+        return 'angel' if self.wave % 5 == 0 else ('hunt', 'supply', 'defend')[(self.wave - 1) % 3]
+
+    @property
+    def objective_target(self):
+        return 5 if self.objective_kind == 'hunt' else 1
+
+    def check_objective(self, event):
+        if self.objective_done:
+            return
+        kind = self.objective_kind
+        if ((kind == 'hunt' and event == 'kill') or
+                (kind == 'supply' and event == 'pickup') or
+                (kind == 'angel' and event == 'boss') or
+                (kind == 'defend' and event == 'clear' and not self.wave_breached)):
+            self.objective_progress += 1
+        if self.objective_progress >= self.objective_target:
+            self.objective_done = True
+            self.objectives_completed += 1
+            reward = 250 + min(750, self.wave * 50)
+            self.score += reward
+            self.energy = min(100, self.energy + 20)
+            self.message(f'OBJECTIVE COMPLETE / +{reward} SCORE / +20 ENERGY')
 
     def handle_event(self, event, position=None):
         """Return navigation actions to the host; never create or close a window."""
@@ -164,7 +193,7 @@ class Game:
             return
         if self.shield:
             self.shield -= 1
-            self.message('BOUCLIER / IMPACT ABSORBÉ')
+            self.message('SHIELD / IMPACT ABSORBED')
         else:
             self.lives -= 1
         self.invulnerable = 1.4
@@ -204,9 +233,10 @@ class Game:
             self.bosses_defeated += 1
             self.base = min(100, self.base + 20)
             self.pickups.append(Pickup(enemy.pos.copy(), 'heal'))
-            self.message('ANGE NEUTRALISÉ / BASE +20')
+            self.message('ANGEL DEFEATED / BASE +20')
         elif self.kills % 5 == 0:
             self.pickups.append(Pickup(enemy.pos.copy(), self.rng.choice(list(PICKUPS))))
+        self.check_objective('boss' if enemy.kind == 'boss' else 'kill')
 
     def bomb(self):
         if self.energy < 100 or self.state != 'playing':
@@ -218,7 +248,7 @@ class Game:
             enemy.hp -= 12
             if enemy.hp <= 0:
                 self.kill(enemy)
-        self.message('AT FIELD / IMPULSION')
+        self.message('AT FIELD / PULSE')
 
     def collect(self, pickup):
         self.bonuses += 1
@@ -232,23 +262,28 @@ class Game:
             self.spread = 10.0
         elif pickup.kind == 'energy':
             self.energy = min(100, self.energy + 40)
-        self.message({'heal': 'RÉPARATION / +1 VIE', 'shield': 'BOUCLIER ACTIVÉ',
-                      'rapid': 'TIR RAPIDE / 10 SECONDES', 'spread': 'TRIPLE TIR / 10 SECONDES',
-                      'energy': 'ÉNERGIE / +40'}[pickup.kind])
+        self.message({'heal': 'REPAIRS / +1 LIFE', 'shield': 'SHIELD ACTIVATED',
+                      'rapid': 'RAPID FIRE / 10 SECONDS', 'spread': 'TRIPLE SHOT / 10 SECONDS',
+                      'energy': 'ENERGY / +40'}[pickup.kind])
+        self.check_objective('pickup')
 
     def next_wave(self):
+        self.check_objective('clear')
         self.wave += 1
+        self.objective_progress = 0
+        self.objective_done = False
+        self.wave_breached = False
         self.base = min(100, self.base + 5)
         self.energy = min(100, self.energy + 10)
         self.wave_timer = 0
         if self.wave % 5 == 0:
             self.spawn('boss')
             self.spawn_remaining = 0
-            self.message(f'ALERTE / ANGE APPROCHANT / VAGUE {self.wave}')
+            self.message(f'WARNING / ANGEL APPROACHING / WAVE {self.wave}')
         else:
             self.spawn_remaining = min(30, 5 + self.wave * 2)
             self.spawn_timer = 1.5
-            self.message(f'VAGUE {self.wave} / PRÉPAREZ-VOUS')
+            self.message(f'WAVE {self.wave} / GET READY')
 
     def update(self, dt, keys=None):
         if self.state != 'playing':
@@ -280,6 +315,7 @@ class Game:
                 self.spawn_remaining -= 1
                 self.spawn_timer = max(.32, 1.1 - self.wave * .04) / self.factor
         elif not self.enemies:
+            self.check_objective('clear')
             self.wave_timer += dt
             if self.wave_timer >= 2.5:
                 self.next_wave()
@@ -322,6 +358,7 @@ class Game:
             elif enemy.pos.y > ARENA.bottom + enemy.radius:
                 self.enemies.remove(enemy)
                 self.base = max(0, self.base - 10)
+                self.wave_breached = True
                 self.combo = 0
                 self.check_end()
             if self.state != 'playing':
@@ -365,7 +402,7 @@ class Game:
         self.screen.fill((8, 13, 23))
         self.text('NERV / COMBAT', (36, 26), CYAN, title=True)
         self.text(f'SCORE {self.score:07d}', (430, 30))
-        self.text(f'VAGUE {self.wave:02d} / {self.difficulty.upper()}', (704, 32), GOLD)
+        self.text(f'WAVE {self.wave:02d} / {self.difficulty.upper()}', (704, 32), GOLD)
         self.text(f'RECORD {max(self.best, self.score):07d}', (976, 32), MUTED)
         pygame.draw.line(self.screen, (39, 57, 74), (36, 86), (1244, 86))
         pygame.draw.rect(self.screen, (11, 20, 33), ARENA, border_radius=10)
@@ -400,7 +437,7 @@ class Game:
                     start = rotation + side * math.pi / 2
                     pygame.draw.arc(self.screen, color, ring, start, start + .85, 2)
                 pygame.draw.circle(self.screen, (255, 218, 185), (int(x), int(y)), 7)
-                self.text('ANGE / AT FIELD', (ARENA.left + 24, ARENA.top + 16), PINK, small=True)
+                self.text('ANGEL / AT FIELD', (ARENA.left + 24, ARENA.top + 16), PINK, small=True)
                 self.bar(pygame.Rect(ARENA.left + 24, ARENA.top + 42, ARENA.w - 48, 6), enemy.hp / (70 + self.wave * 2), PINK)
         x, y = self.player
         if self.invulnerable <= 0 or int(self.invulnerable * 14) % 2:
@@ -424,20 +461,25 @@ class Game:
         pygame.draw.rect(self.screen, (39, 57, 74), ARENA, 1, border_radius=10)
         # The original illustration remains visible throughout combat.
         self.screen.blit(self.art, (976, 108))
-        self.text('PILOT / UNIT 01', (976, 355), CYAN, small=True)
-        self.text(f'Vies  {self.lives} / 5    Boucliers  {self.shield}', (952, 394))
-        self.text(f'Base  {self.base} %', (952, 432), MUTED)
-        self.bar(pygame.Rect(952, 460, 292, 8), self.base / 100, CYAN if self.base > 30 else PINK)
-        self.text(f'AT FIELD  {int(self.energy)} %', (952, 492), GOLD)
-        self.bar(pygame.Rect(952, 520, 292, 8), self.energy / 100, GOLD)
-        self.text('C : impulsion anti-projectiles', (952, 540), MUTED, small=True)
-        self.text('SHIFT : esquive' + (' prête' if self.dash_cooldown <= 0 else f' {self.dash_cooldown:.1f}s'), (952, 574), CYAN, small=True)
-        self.text('F : tir auto ' + ('ON' if self.autofire else 'OFF'), (952, 604), MUTED, small=True)
-        self.text(f'Combo x{min(5, 1 + self.combo // 5)} / {self.kills} éliminations', (952, 634), GOLD)
-        power = f'Triple {self.spread:.0f}s / Rapide {self.rapid:.0f}s'
-        self.text(power, (952, 668), MUTED, small=True)
-        self.text('P : pause / menu / sauvegarde', (952, 718), CYAN, small=True)
-        self.text('Flèches / ZQSD / WASD : déplacer   |   Espace : tirer   |   C : impulsion   |   Shift : esquive', (36, 772), MUTED, small=True)
+        self.text('PILOT / UNIT 01', (976, 351), CYAN, small=True)
+        self.text(f'Lives  {self.lives} / 5    Shields  {self.shield}', (952, 382))
+        self.text(f'Base  {self.base} %', (952, 415), MUTED)
+        self.bar(pygame.Rect(952, 441, 292, 8), self.base / 100, CYAN if self.base > 30 else PINK)
+        self.text(f'AT FIELD  {int(self.energy)} %', (952, 472), GOLD)
+        self.bar(pygame.Rect(952, 498, 292, 8), self.energy / 100, GOLD)
+        self.text('C : projectile-clearing pulse', (952, 516), MUTED, small=True)
+        self.text('SHIFT : dash' + (' ready' if self.dash_cooldown <= 0 else f' {self.dash_cooldown:.1f}s'), (952, 548), CYAN, small=True)
+        self.text('F : auto-fire ' + ('ON' if self.autofire else 'OFF'), (952, 577), MUTED, small=True)
+        self.text(f'Combo x{min(5, 1 + self.combo // 5)} / {self.kills} kills', (952, 606), GOLD)
+        power = f'Triple {self.spread:.0f}s / Rapid {self.rapid:.0f}s'
+        self.text(power, (952, 635), MUTED, small=True)
+        status = 'OBJECTIVE COMPLETE' if self.objective_done else f'OBJECTIVE {self.objective_progress}/{self.objective_target}'
+        self.text(status, (952, 668), CYAN if self.objective_done else GOLD, small=True)
+        description = {'hunt': 'Eliminate 5 targets', 'supply': 'Collect a power-up',
+                       'defend': 'Clear wave: no base breaches', 'angel': 'Defeat the Angel'}[self.objective_kind]
+        self.text(description, (952, 692), MUTED, small=True)
+        self.text('P : pause / save    H : help', (952, 724), CYAN, small=True)
+        self.text('Arrows / WASD / ZQSD : move  |  Space : fire  |  C : pulse  |  Shift : dash  |  H : help', (36, 772), MUTED, small=True)
         if self.banner_timer > 0 and not any(e.kind == 'boss' for e in self.enemies):
             self.text(self.banner, (ARENA.left + 24, ARENA.top + 24), CYAN)
         if self.state != 'playing':
@@ -450,22 +492,29 @@ class Game:
         panel = pygame.Rect(244, 176, 456, 470)
         pygame.draw.rect(self.screen, (17, 27, 41), panel, border_radius=16)
         pygame.draw.rect(self.screen, (39, 57, 74), panel, 1, border_radius=16)
-        self.text('PAUSE' if self.state == 'paused' else 'MISSION TERMINEE', (284, 216), CYAN, title=True)
-        self.text(f'Score {self.score}  /  Vague {self.wave}', (284, 264), MUTED)
-        labels = ('Reprendre', 'Réglages', 'Sauvegarder et menu', 'Retour au menu') if self.state == 'paused' else ('Rejouer', 'Retour au menu')
+        self.text('PAUSE' if self.state == 'paused' else 'MISSION OVER', (284, 216), CYAN, title=True)
+        self.text(f'Score {self.score}  /  Wave {self.wave}', (284, 264), MUTED)
+        labels = ('Resume', 'Settings', 'Save and menu', 'Back to menu') if self.state == 'paused' else ('Play again', 'Back to menu')
         for index, label in enumerate(labels):
             rect = self.pause_rects[index]
             active = index == self.selected
             pygame.draw.rect(self.screen, (22, 54, 58) if active else (15, 24, 37), rect, border_radius=9)
             pygame.draw.rect(self.screen, CYAN if active else (39, 57, 74), rect, 1, border_radius=9)
             self.text(label, (rect.x + 18, rect.y + 16), CYAN if active else TEXT)
-        self.text('Flèches / Entrée ou souris', (284, 604), MUTED, small=True)
+        if self.state == 'gameover':
+            self.text(f'Targets {self.kills} / Power-ups {self.bonuses}', (284, 452), MUTED)
+            self.text(f'Angels {self.bosses_defeated} / Objectives {self.objectives_completed}', (284, 484), MUTED)
+            minutes, seconds = divmod(int(self.elapsed), 60)
+            self.text(f'Time {minutes:02d}:{seconds:02d} / Base {self.base}%', (284, 516), MUTED)
+            self.text(f'Personal best {max(self.best, self.score)}', (284, 548), GOLD)
+        self.text('Arrows / Enter or mouse', (284, 604), MUTED, small=True)
 
     def snapshot(self):
         names = ('difficulty', 'score', 'lives', 'base', 'elapsed', 'wave', 'spawn_remaining',
                  'spawn_timer', 'wave_timer', 'shot_timer', 'invulnerable', 'dash_timer',
                  'dash_cooldown', 'shield', 'rapid', 'spread', 'energy', 'combo',
-                 'combo_timer', 'kills', 'bosses_defeated', 'bonuses', 'autofire')
+                 'combo_timer', 'kills', 'bosses_defeated', 'bonuses', 'autofire',
+                 'objectives_completed', 'objective_progress', 'objective_done', 'wave_breached')
         data = {name: getattr(self, name) for name in names}
         data.update(version=1, player=list(self.player),
                     enemies=[{'pos': list(e.pos), 'kind': e.kind, 'hp': e.hp, 'age': e.age,
@@ -507,6 +556,14 @@ class Game:
             for key in ('elapsed', 'spawn_timer', 'wave_timer', 'shot_timer', 'invulnerable',
                         'dash_timer', 'dash_cooldown', 'rapid', 'spread', 'energy', 'combo_timer'):
                 values[key] = number(data[key], -1 if key == 'shot_timer' else 0, 10_000_000 if key == 'elapsed' else 100)
+            # Optional fields keep saves from the previous release compatible.
+            for key in ('objectives_completed', 'objective_progress'):
+                values[key] = number(data.get(key, 0), 0, 1000000, integer=True)
+            for key in ('objective_done', 'wave_breached'):
+                value = data.get(key, False)
+                if type(value) is not bool:
+                    raise ValueError('invalid objective state')
+                values[key] = value
             if type(data['autofire']) is not bool:
                 raise ValueError('invalid autofire')
             player = vector(data['player'])
@@ -540,7 +597,7 @@ class Game:
         self.hostile_shots = shots['hostile_shots']
         self.pickups = pickups
         self.state = 'paused'
-        self.message('PARTIE RESTAURÉE / REPRENEZ QUAND VOUS ÊTES PRÊT')
+        self.message('SAVE RESTORED / RESUME WHEN READY')
 
 
 if __name__ == '__main__':
