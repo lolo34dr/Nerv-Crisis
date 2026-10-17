@@ -21,13 +21,19 @@ L'absence de peripherique audio n'empeche pas de jouer.
 
 ## Menu original
 
-`main.py` conserve le menu historique : animations, couleurs neon, image
-Evangelion, lecteur musical et boutons New Game / Load / Lab / Quit.
+`main.py` conserve les images et la bande-son historiques, avec une interface
+revue : titres pixel, textes lisibles avec accents, illustration sans deformation,
+boutons New Game / Load / Lab / Quit et panneaux harmonises.
+L’introduction dure trois secondes et se passe avec Entree, Espace ou un clic.
 Cliquez sur **New Game**, puis choisissez **Shooter** pour ouvrir le jeu ameliore.
 Le menu se pilote avec la souris ou les fleches et Entree.
-Lab propose le volume musical (fleches gauche/droite) et les commandes.
+Lab propose le volume musical (curseur a la souris ou fleches gauche/droite)
+et les commandes.
 M met la musique en pause. Load indique que les sauvegardes sont indisponibles.
-Le menu se redimensionne en conservant ses proportions.
+Le menu se redimensionne en conservant ses proportions, avec bandes noires
+si necessaire. Les zones cliquables suivent la taille de la fenetre.
+La musique du menu est mise en pause pendant le shooter, puis reprend a sa
+fermeture sauf si vous l’aviez deja mise en pause.
 F11 bascule le menu en plein ecran. Pour passer les animations de demarrage :
 `python main.py --skip-intro`.
 
@@ -52,7 +58,8 @@ python -m unittest discover -s tests -v
 ```
 
 Ces tests utilisent les pilotes SDL fictifs et verifient les collisions,
-les controles, les transitions, la progression et le rendu des quatre ecrans.
+les controles, les transitions, la progression, les panneaux du menu, le volume
+et les zones cliquables apres redimensionnement.
 Ils ne valident pas l'affichage physique ni la sortie sonore.
 
 ## Licence
