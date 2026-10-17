@@ -24,7 +24,10 @@ L'absence de peripherique audio n'empeche pas de jouer.
 `main.py` conserve le menu historique : animations, couleurs neon, image
 Evangelion, lecteur musical et boutons New Game / Load / Lab / Quit.
 Cliquez sur **New Game**, puis choisissez **Shooter** pour ouvrir le jeu ameliore.
-Load et Lab restent des options non implementees du menu original.
+Le menu se pilote avec la souris ou les fleches et Entree.
+Lab propose le volume musical (fleches gauche/droite) et les commandes.
+M met la musique en pause. Load indique que les sauvegardes sont indisponibles.
+Le menu se redimensionne en conservant ses proportions.
 F11 bascule le menu en plein ecran. Pour passer les animations de demarrage :
 `python main.py --skip-intro`.
 

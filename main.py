@@ -27,7 +27,7 @@ class SilentSound:
 # ---------------------------
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 800
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED | pygame.RESIZABLE)
 pygame.display.set_caption("Neon Genesis - NERV Crisis")
 pygame.display.set_icon(pygame.image.load(str(ROOT / "engine/images/icon.jpg")))
 # F11 permet de basculer en plein écran depuis le menu.
@@ -223,7 +223,9 @@ def animate_logo():
 # ---------------------------
 def confirm_quit():
     confirm_running = True
+    confirm_clock = pygame.time.Clock()
     while confirm_running:
+        confirm_clock.tick(60)
         screen.blit(gradient_bg, (0, 0))
         confirm_text = render_text(pixel_font_large, "Are you sure you want to quit?", COLORS["text"], glow=True)
         confirm_rect = confirm_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3))
@@ -236,8 +238,13 @@ def confirm_quit():
         screen.blit(no_button, no_rect)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return False
-            if event.type == pygame.MOUSEBUTTONDOWN:
+                return True
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_RETURN, pygame.K_y):
+                    return True
+                if event.key in (pygame.K_ESCAPE, pygame.K_n):
+                    return False
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if yes_rect.collidepoint(event.pos):
                     return True
                 if no_rect.collidepoint(event.pos):
@@ -367,6 +374,8 @@ def game_selector():
                 sys.exit()
             # Gestion des événements clavier
             if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return
                 if event.key == pygame.K_UP:
                     selected_index = (selected_index - 1) % len(game_options)
                 elif event.key == pygame.K_DOWN:
@@ -439,120 +448,139 @@ if AUDIO_AVAILABLE:
     pygame.mixer.music.play(-1)
 
 music_paused = False
+volume = 0.6
 running = True
 clock = pygame.time.Clock()
-last_hover = None
+selected_index = 0
+panel = None
+notice = ""
+notice_until = 0
+menu_rects = [pygame.Rect(90, item["pos"][1] - 12, 460, 72) for item in menu_items]
+audio_rect = pygame.Rect(700, 590, 490, 74)
 
-# ---------------------------
-# Boucle principale du menu
-# ---------------------------
+
+def label(text, pos, color=None, font=None):
+    surface = (font or pixel_font_small).render(text, True, color or COLORS["text"])
+    screen.blit(surface, pos)
+
+
+def toggle_music():
+    global music_paused
+    music_paused = not music_paused
+    if AUDIO_AVAILABLE:
+        if music_paused:
+            pygame.mixer.music.pause()
+        else:
+            pygame.mixer.music.unpause()
+
+
+def activate(index):
+    global running, panel, notice, notice_until
+    click_sound.play()
+    action = menu_items[index]["action"]
+    if action == "start":
+        game_selector()
+    elif action == "quit":
+        if confirm_quit():
+            running = False
+    elif action == "lab":
+        panel = "lab"
+    elif action == "load":
+        notice = "Aucune sauvegarde : lancez New Game."
+        notice_until = pygame.time.get_ticks() + 4000
+
+
 while running:
-    dt = clock.tick(60) / 1000
-    mouse_pos = pygame.mouse.get_pos()
-
+    dt = min(clock.tick(60) / 1000, .1)
     for event in pygame.event.get():
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-            pygame.display.toggle_fullscreen()
         if event.type == pygame.QUIT:
             if confirm_quit():
                 running = False
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            # Gestion du clic sur le player audio
-            img_x = SCREEN_WIDTH - evangelion_img_rounded.get_width() - 150
-            img_y = (SCREEN_HEIGHT - evangelion_img_rounded.get_height()) // 2
-            track_title = "The Cruel Angel's Thesis"
-            player_text = "Pause" if not music_paused else "Play"
-            audio_str = f"{track_title} [{player_text}]"
-            audio_text = render_text(pixel_font_medium, audio_str, COLORS["text"], glow=True)
-            padding = 20
-            audio_rect = pygame.Rect(0, 0, audio_text.get_width() + padding, audio_text.get_height() + padding)
-            audio_rect.midtop = (img_x + evangelion_img_rounded.get_width() // 2, img_y + evangelion_img_rounded.get_height() + 10)
-            if audio_rect.collidepoint(event.pos):
-                if not music_paused:
-                    pygame.mixer.music.pause() if AUDIO_AVAILABLE else None
-                    music_paused = True
-                else:
-                    pygame.mixer.music.unpause() if AUDIO_AVAILABLE else None
-                    music_paused = False
-            else:
-                # Vérification du clic sur les items du menu
-                for index, item in enumerate(menu_items):
-                    item_text = render_text(pixel_font_medium, item["text"], COLORS["text"], glow=True)
-                    rect = item_text.get_rect(topleft=item["pos"])
-                    if rect.collidepoint(event.pos):
-                        if click_sound:
-                            click_sound.play()
-                        if item["action"] == "quit":
-                            if confirm_quit():
-                                running = False
-                        elif item["action"] == "start":
-                            # Appel du game selector pour choisir un jeu (ici, Shooter est proposé)
-                            game_selector()
-                        # Vous pouvez ajouter ici les actions pour "load" ou "lab"
-
-    # Dessin du fond
-    screen.blit(gradient_bg, (0, 0))
-
-    # Animation de la surface de cyber lines (défilement horizontal)
-    screen.blit(cyber_lines_surface, (-cyber_offset, 0))
-    cyber_offset = (cyber_offset + 1) % SCREEN_WIDTH
-
-    # Affichage de l'image Evangelion avec coins arrondis
-    img_x = SCREEN_WIDTH - evangelion_img_rounded.get_width() - 150
-    img_y = (SCREEN_HEIGHT - evangelion_img_rounded.get_height()) // 2
-    screen.blit(evangelion_img_rounded, (img_x, img_y))
-
-    # Affichage du player audio sous l'image
-    track_title = "The Cruel Angel's Thesis"
-    player_text = "Pause" if not music_paused else "Play"
-    audio_str = f"{track_title} [{player_text}]"
-    audio_text = render_text(pixel_font_medium, audio_str, COLORS["text"], glow=True)
-    padding = 20
-    audio_rect = pygame.Rect(0, 0, audio_text.get_width() + padding, audio_text.get_height() + padding)
-    audio_rect.midtop = (img_x + evangelion_img_rounded.get_width() // 2, img_y + evangelion_img_rounded.get_height() + 10)
-    pygame.draw.rect(screen, COLORS["neon_cyan"], audio_rect, 2, border_radius=5)
-    audio_text_rect = audio_text.get_rect(center=audio_rect.center)
-    screen.blit(audio_text, audio_text_rect)
-
-    # Affichage du titre "NERV Crisis" avec un effet glitch léger
-    title_glitch = render_text(pixel_font_title, "NERV Crisis", COLORS["neon_cyan"], glow=True)
-    title_glitch_rect = title_glitch.get_rect(center=(SCREEN_WIDTH // 2, 150))
-    if random.random() < 0.1:
-        jitter = (random.randint(-5, 5), random.randint(-3, 3))
-        screen.blit(title_glitch, (title_glitch_rect.x + jitter[0], title_glitch_rect.y + jitter[1]))
-    else:
-        screen.blit(title_glitch, title_glitch_rect)
-
-    # Affichage des items du menu
-    for index, item in enumerate(menu_items):
-        base_text = item["text"]
-        text_surface = render_text(pixel_font_medium, base_text, COLORS["text"], glow=True)
-        rect = text_surface.get_rect(topleft=item["pos"])
-        if rect.collidepoint(mouse_pos):
-            if last_hover != index:
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_F11:
+                pygame.display.toggle_fullscreen()
+            elif event.key == pygame.K_m:
+                toggle_music()
+            elif panel:
+                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                    panel = None
+                elif event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+                    volume = max(0, min(1, round(volume + (.1 if event.key == pygame.K_RIGHT else -.1), 1)))
+                    if AUDIO_AVAILABLE:
+                        pygame.mixer.music.set_volume(volume)
+            elif event.key in (pygame.K_UP, pygame.K_DOWN):
+                selected_index = (selected_index + (1 if event.key == pygame.K_DOWN else -1)) % len(menu_items)
                 hover_sound.play()
-                last_hover = index
-            scale_factor = 1.1
-            scaled_size = (int(rect.width * scale_factor), int(rect.height * scale_factor))
-            scaled_text = pygame.transform.smoothscale(text_surface, scaled_size)
-            scaled_rect = scaled_text.get_rect(center=rect.center)
-            screen.blit(scaled_text, scaled_rect)
-            pygame.draw.line(screen, COLORS["neon_cyan"],
-                             (scaled_rect.left - 10, scaled_rect.bottom + 5),
-                             (scaled_rect.right + 10, scaled_rect.bottom + 5), 3)
-            pygame.draw.rect(screen, COLORS["neon_cyan"], scaled_rect.inflate(20, 10), 2, border_radius=5)
-        else:
-            screen.blit(text_surface, rect)
+            elif event.key == pygame.K_RETURN:
+                activate(selected_index)
+            elif event.key == pygame.K_ESCAPE:
+                if confirm_quit():
+                    running = False
+        elif event.type == pygame.MOUSEMOTION and not panel:
+            for index, rect in enumerate(menu_rects):
+                if rect.collidepoint(event.pos) and selected_index != index:
+                    selected_index = index
+                    hover_sound.play()
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if panel:
+                panel = None
+            elif audio_rect.collidepoint(event.pos):
+                toggle_music()
+            else:
+                for index, rect in enumerate(menu_rects):
+                    if rect.collidepoint(event.pos):
+                        selected_index = index
+                        activate(index)
+                        break
 
-    fps_text = render_text(pixel_font_small, f"FPS: {int(clock.get_fps())}", COLORS["text"])
-    screen.blit(fps_text, (10, 10))
-    screen.blit(crt_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
-
-    copyright_text = render_text_with_unicode(pixel_font_copyright, "COPYRIGHT © 2025 0-cyz-0", COLORS["text"])
-    copyright_rect = copyright_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 20))
-    screen.blit(copyright_text, copyright_rect)
-
-    pygame.display.update()
+    screen.blit(gradient_bg, (0, 0))
+    cyber_offset = (cyber_offset + 60 * dt) % SCREEN_WIDTH
+    screen.blit(cyber_lines_surface, (-cyber_offset, 0))
+    # Cadre de commande MAGI et signature visuelle du menu historique.
+    pygame.draw.rect(screen, (12, 22, 40), (60, 245, 520, 450), border_radius=18)
+    pygame.draw.rect(screen, (35, 75, 95), (60, 245, 520, 450), 1, border_radius=18)
+    title = render_text(pixel_font_title, "NERV Crisis", COLORS["neon_cyan"], glow=True)
+    screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 125)))
+    label("MAGI SYSTEM / COMBAT OPERATIONS", (395, 190), COLORS["neon_pink"])
+    label("01 / PILOT TERMINAL", (90, 260), COLORS["neon_cyan"])
+    subtitles = ["Lancer une nouvelle mission", "Sauvegardes non disponibles", "Audio et commandes", "Fermer le terminal"]
+    for index, (item, rect) in enumerate(zip(menu_items, menu_rects)):
+        active = index == selected_index
+        if active:
+            pygame.draw.rect(screen, (18, 48, 65), rect, border_radius=8)
+            pygame.draw.rect(screen, COLORS["neon_cyan"], rect, 2, border_radius=8)
+            pygame.draw.rect(screen, COLORS["neon_pink"], (rect.x, rect.y + 12, 4, rect.h - 24))
+        label(item["text"], (rect.x + 18, rect.y + 7), COLORS["neon_cyan"] if active else COLORS["text"], pixel_font_medium)
+        label(subtitles[index], (rect.x + 18, rect.y + 43), (135, 160, 185))
+    pulse = int(100 + 70 * math.sin(pygame.time.get_ticks() / 700))
+    pygame.draw.rect(screen, (0, pulse, pulse), (790, 258, 320, 320), 2, border_radius=20)
+    screen.blit(evangelion_img_rounded, (800, 268))
+    label("EVA / SYNCHRONIZATION ONLINE", (745, 225), COLORS["neon_cyan"])
+    pygame.draw.rect(screen, (18, 35, 52), audio_rect, border_radius=10)
+    pygame.draw.rect(screen, COLORS["neon_cyan"], audio_rect, 1, border_radius=10)
+    label("The Cruel Angel's Thesis", (audio_rect.x + 18, audio_rect.y + 12))
+    status = "PAUSE" if music_paused else "LECTURE"
+    if not AUDIO_AVAILABLE:
+        status = "AUDIO INDISPONIBLE"
+    label(status + " / M : musique", (audio_rect.x + 18, audio_rect.y + 40), COLORS["neon_cyan"])
+    if pygame.time.get_ticks() < notice_until:
+        label(notice, (90, 705), COLORS["neon_pink"])
+    label("FLECHES / ENTREE : choisir    M : musique    F11 : plein ecran", (135, 742))
+    label("COPYRIGHT 2025 0-cyz-0", (490, 775), (110, 135, 160))
+    if panel:
+        shade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        shade.fill((0, 0, 12, 220))
+        screen.blit(shade, (0, 0))
+        pygame.draw.rect(screen, (15, 25, 45), (240, 200, 800, 400), border_radius=16)
+        pygame.draw.rect(screen, COLORS["neon_cyan"], (240, 200, 800, 400), 2, border_radius=16)
+        label("LAB / REGLAGES", (290, 235), COLORS["neon_cyan"], pixel_font_large)
+        label(f"Volume musique : {round(volume * 100)}%  /  Fleches gauche-droite", (290, 310))
+        pygame.draw.rect(screen, (40, 60, 80), (290, 350, 680, 10), border_radius=5)
+        pygame.draw.rect(screen, COLORS["neon_pink"], (290, 350, round(680 * volume), 10), border_radius=5)
+        label("Jeu : fleches / ZQSD / WASD, ESPACE pour tirer", (290, 400))
+        label("P : pause du jeu   /   M : musique du menu", (290, 445))
+        label("ENTREE, ECHAP ou clic : retour", (290, 535), COLORS["neon_cyan"])
+    pygame.display.flip()
 
 pygame.quit()
 sys.exit()
