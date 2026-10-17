@@ -4,17 +4,20 @@ os.environ['SDL_VIDEODRIVER'] = 'dummy'
 os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
+from tempfile import TemporaryDirectory
 import pygame
 from main import Menu, SIZE
 
 
 class MenuTests(unittest.TestCase):
     def setUp(self):
-        self.menu = Menu(skip_intro=True)
+        self.directory = TemporaryDirectory()
+        self.menu = Menu(skip_intro=True, data_directory=self.directory.name)
 
     def tearDown(self):
         pygame.quit()
+        self.directory.cleanup()
 
     def key(self, value):
         self.menu.handle_event(pygame.event.Event(pygame.KEYDOWN, key=value))
@@ -25,22 +28,63 @@ class MenuTests(unittest.TestCase):
                     viewport.y + round(position[1] * viewport.h / SIZE[1]))
         self.menu.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=position, button=1))
 
-    def test_keyboard_launches_game_and_prevents_duplicates(self):
-        child = Mock()
-        child.poll.return_value = None
-        with patch('main.subprocess.Popen', return_value=child) as launch:
+    def test_keyboard_launch_uses_same_window_and_audio(self):
+        display = self.menu.window
+        with patch('pygame.display.set_mode') as window, patch('subprocess.Popen') as process, \
+                patch('pygame.mixer.music.load') as load, patch('pygame.mixer.music.pause') as pause:
             self.key(pygame.K_RETURN)
             self.assertEqual(self.menu.modal, 'selector')
             self.key(pygame.K_RETURN)
-            self.assertIs(self.menu.child, child)
-            self.menu.launch_game()
-            launch.assert_called_once()
-            self.assertEqual(launch.call_args.args[0][-1], 'engine.game.shooter')
-        child.poll.return_value = 0
-        with patch('pygame.mixer.music.unpause') as resume:
-            self.menu.update(.1)
-            self.assertIsNone(self.menu.child)
-            resume.assert_called_once()
+            self.assertIs(self.menu.game.screen, self.menu.canvas)
+            self.assertIs(self.menu.window, display)
+            self.assertEqual(self.menu.game.state, 'playing')
+            self.menu.draw()
+            self.menu.present()
+        window.assert_not_called()
+        process.assert_not_called()
+        load.assert_not_called()
+        pause.assert_not_called()
+
+    def test_pause_settings_return_and_new_session_save_load(self):
+        self.menu.launch_game()
+        self.menu.game.score = 1250
+        self.key(pygame.K_p)
+        self.assertEqual(self.menu.game.state, 'paused')
+        self.key(pygame.K_DOWN)
+        self.key(pygame.K_RETURN)
+        self.assertEqual(self.menu.modal, 'lab')
+        elapsed = self.menu.game.elapsed
+        self.menu.update(.05)
+        self.assertEqual(self.menu.game.elapsed, elapsed)
+        self.key(pygame.K_ESCAPE)
+        self.assertEqual(self.menu.game.state, 'paused')
+        self.key(pygame.K_DOWN)  # Save and menu.
+        self.key(pygame.K_RETURN)
+        self.assertIsNone(self.menu.game)
+        self.assertEqual(self.menu.profile.highscores['normal'], 1250)
+        reopened = Menu(skip_intro=True, data_directory=self.directory.name)
+        reopened.activate(1)
+        reopened.modal_action(0)
+        self.assertEqual(reopened.game.score, 1250)
+        self.assertEqual(reopened.game.state, 'paused')
+        reopened.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
+        self.assertEqual(reopened.game.state, 'playing')
+
+    def test_record_before_replay_and_return_menu(self):
+        self.menu.launch_game()
+        self.menu.game.score = 6000
+        self.menu.game.kills = 30
+        self.menu.game.bosses_defeated = 1
+        self.menu.game.state = 'gameover'
+        self.key(pygame.K_RETURN)
+        self.assertEqual(self.menu.profile.highscores['normal'], 6000)
+        self.assertIn('boss', self.menu.profile.achievements)
+        self.assertEqual(self.menu.game.score, 0)
+        self.key(pygame.K_p)
+        for _ in range(3):
+            self.key(pygame.K_DOWN)
+        self.key(pygame.K_RETURN)
+        self.assertIsNone(self.menu.game)
 
     def test_lab_volume_clamps_and_music_button(self):
         self.menu.activate(2)
@@ -98,23 +142,35 @@ class MenuTests(unittest.TestCase):
         self.key(pygame.K_SPACE)
         self.assertFalse(self.menu.intro)
         self.menu.draw()
-        for modal in ('selector', 'lab', 'load', 'quit'):
+        for modal in ('selector', 'lab', 'load', 'quit', 'records'):
             self.menu.open_modal(modal)
             self.menu.draw()
             self.menu.present()
         self.menu.handle_event(pygame.event.Event(pygame.QUIT))
         self.assertFalse(self.menu.running)
 
-    def test_no_audio_and_launch_failure(self):
+    def test_no_audio_and_invalid_saved_game(self):
         self.menu.audio_available = False
         self.menu.toggle_music()
         self.menu.set_volume(.5)
         self.menu.draw()
-        self.menu.open_modal('selector')
-        with patch('main.subprocess.Popen', side_effect=OSError):
-            self.menu.launch_game()
-        self.assertIsNone(self.menu.child)
+        self.menu.profile.saved_game = {'version': 999}
+        self.menu.launch_game(resume=True)
+        self.assertIsNone(self.menu.game)
         self.assertTrue(self.menu.notice)
+
+    def test_difficulty_settings_and_effects_persist(self):
+        self.menu.open_modal('selector')
+        self.key(pygame.K_RIGHT)
+        self.assertEqual(self.menu.difficulty, 'expert')
+        self.key(pygame.K_ESCAPE)
+        self.menu.open_modal('lab')
+        self.key(pygame.K_v)
+        self.assertFalse(self.menu.effects)
+        self.key(pygame.K_ESCAPE)
+        reopened = Menu(skip_intro=True, data_directory=self.directory.name)
+        self.assertEqual(reopened.difficulty, 'expert')
+        self.assertFalse(reopened.effects)
 
     def test_text_stays_inside_canvas_and_dialog(self):
         original = self.menu.text
@@ -126,6 +182,6 @@ class MenuTests(unittest.TestCase):
             return rect
         with patch.object(self.menu, 'text', side_effect=checked):
             self.menu.draw()
-            for modal in ('selector', 'load', 'lab', 'quit'):
+            for modal in ('selector', 'load', 'lab', 'quit', 'records'):
                 self.menu.open_modal(modal)
                 self.menu.draw_modal()

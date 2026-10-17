@@ -1,11 +1,12 @@
 # Nerv : Crisis
 
-Un jeu d'arcade spatial en Python/Pygame : protegez la base, detruisez les
-ennemis et survivez aux vagues de difficulte croissante.
+Un jeu d’arcade spatial en Python/Pygame. Défendez Tokyo-3 et survivez aux
+vagues, dans une seule fenêtre du menu jusqu’à la fin de partie. L’illustration
+Evangelion, le logo, la police pixel et la bande-son d’origine sont conservés.
 
-## Installation et lancement
+## Installer et jouer
 
-Python 3.12 recommande.
+Python 3.12 recommandé.
 
 ```sh
 python -m venv .venv
@@ -15,58 +16,100 @@ python main.py
 ```
 
 Sous Windows, activez avec `.venv\Scripts\activate`.
-Les ressources sont localisees par rapport au code : le lancement fonctionne
-meme depuis un autre dossier. Une session graphique est necessaire pour jouer.
-L'absence de peripherique audio n'empeche pas de jouer.
+Une session graphique est nécessaire pour jouer. Le jeu fonctionne sans
+périphérique audio. Les ressources sont localisées par rapport au code :
+le lancement fonctionne depuis un autre dossier.
 
-## Menu original
+## Menu et fenêtre
 
-`main.py` conserve les images et la bande-son historiques, avec une interface
-revue : titres pixel, textes lisibles avec accents, illustration sans deformation,
-boutons New Game / Load / Lab / Quit et panneaux harmonises.
-L’introduction dure trois secondes et se passe avec Entree, Espace ou un clic.
-Cliquez sur **New Game**, puis choisissez **Shooter** pour ouvrir le jeu ameliore.
-Le menu se pilote avec la souris ou les fleches et Entree.
-Lab propose le volume musical (curseur a la souris ou fleches gauche/droite)
-et les commandes.
-M met la musique en pause. Load indique que les sauvegardes sont indisponibles.
-Le menu se redimensionne en conservant ses proportions, avec bandes noires
-si necessaire. Les zones cliquables suivent la taille de la fenetre.
-La musique du menu est mise en pause pendant le shooter, puis reprend a sa
-fermeture sauf si vous l’aviez deja mise en pause.
-F11 bascule le menu en plein ecran. Pour passer les animations de demarrage :
-`python main.py --skip-intro`.
+- **New Game** : choisir Cadet, Normal ou Expert, puis lancer la mission.
+- **Load** : reprendre la dernière partie sauvegardée, en pause.
+- **Lab** : volume, pause de la musique et particules activables avec **V**.
+- **B** ou clic sur les records : consulter les records par difficulté et les cinq succès.
+- Navigation : souris, flèches et Entrée. Échap ferme les panneaux.
+- **M** : mettre la musique en pause/reprise, dans le menu comme en jeu.
+- **F11** : plein écran. La fenêtre se redimensionne en gardant les proportions
+  et les zones cliquables correctes.
 
-## Commandes du shooter
+L’introduction de trois secondes se passe avec Entrée, Espace ou un clic.
+`python main.py --skip-intro` ouvre directement le terminal.
+Le combat utilise la même fenêtre, le même affichage et la même piste musicale :
+aucun sous-processus ni deuxième lecteur audio n’est lancé.
 
-- Entree : commencer ou rejouer.
-- Fleches, ZQSD ou WASD : deplacement.
-- Espace maintenu : tir continu.
-- P ou Echap : pause/reprise. La perte de focus met aussi le jeu en pause.
-- M : couper/reactiver la musique.
-- Echap depuis le menu ou la fin de partie : quitter.
+## Commandes en mission
 
-Chaque ennemi detruit rapporte 100 points. Une collision ou un ennemi qui
-franchit la base coute une vie, avec une courte protection apres les degats.
-La difficulte augmente toutes les 20 secondes. Le record est conserve pendant
-la session uniquement.
+| Action | Commande |
+| --- | --- |
+| Déplacer | Flèches, ZQSD ou WASD |
+| Tir continu | Maintenir Espace |
+| Tir automatique | F |
+| Esquive rapide et courte protection | Maj / Shift (recharge 2,2 s) |
+| Impulsion AT Field | C, quand l’énergie atteint 100 % |
+| Pause / reprise | P ou Échap |
+| Musique / plein écran | M / F11 |
 
-## Verification sans ecran
+Le jeu se met en pause à la perte de focus. Le menu pause permet de reprendre,
+de changer les réglages, de **sauvegarder et revenir au menu**, ou de revenir au
+menu sans sauvegarder la partie. La fin de partie propose de rejouer ou de
+revenir au menu. Ces écrans se pilotent aussi à la souris.
+
+## Combat et progression
+
+- **Éclaireurs** : rapides, fragiles ; **zigzags** : trajectoires sinusoïdales ;
+  **canonniers** : résistants, tirs dirigés vers le joueur.
+- Un **boss Ange toutes les cinq vagues**, avec barre de vie, tirs en éventail
+  et une seconde phase plus agressive à mi-vie.
+- Détruisez tous les ennemis d’une vague pour progresser. Chaque nouvelle vague
+  répare 5 % de la base et recharge 10 % d’énergie. Un boss détruit répare 20 %.
+- Les ennemis qui franchissent la base lui retirent 10 %. Les impacts du joueur
+  coûtent une vie, sauf protection temporaire ou bouclier. Une base détruite ou
+  zéro vie termine la mission. Cadet commence avec cinq vies, les autres modes
+  avec trois ; les soins peuvent monter à cinq.
+- Les éliminations rapprochées montent un **combo jusqu’à x5**. Les points de
+  base sont 100 / 180 / 250 / 2 500 selon le type d’ennemi.
+- Une capsule tombe toutes les cinq éliminations ; les boss lâchent un soin.
+  **+** : vie, **S** : bouclier (maximum deux), **R** : tir rapide pendant 10 s,
+  **T** : triple tir pendant 10 s, **E** : +40 % d’énergie.
+- L’impulsion AT Field efface les projectiles adverses et inflige des dégâts
+  aux ennemis. Les éliminations rechargent aussi son énergie.
+
+## Sauvegardes et progression locale
+
+Un emplacement de sauvegarde conserve le combat : position, vague, ennemis,
+projectiles, bonus, score et temporisations. Les effets décoratifs et la suite
+aléatoire des futures apparitions ne sont pas conservés. **Load** restaure la
+partie en pause. Une nouvelle sauvegarde remplace la précédente ; une nouvelle
+partie ne l’efface pas. Fermer la fenêtre ne sauvegarde pas automatiquement
+la mission : utilisez **Pause → Sauvegarder et menu**.
+
+Les records par difficulté, succès et réglages sont stockés dans `profile.json` :
+
+- Linux : `$XDG_DATA_HOME/Nerv-Crisis`, sinon `~/.local/share/Nerv-Crisis`.
+- Windows : `%LOCALAPPDATA%\Nerv-Crisis`.
+- Pour choisir un autre dossier : variable `NERV_DATA_DIR`.
+
+Les écritures sont atomiques. Les données invalides sont refusées et les erreurs
+d’écriture sont signalées dans le jeu. Aucune donnée personnelle n’est envoyée
+à un service externe. Les fichiers du jeu et les anciennes versions restent
+séparés des données du joueur.
+
+## Vérifications
 
 ```sh
 python -m unittest discover -s tests -v
 ```
 
-Ces tests utilisent les pilotes SDL fictifs et verifient les collisions,
-les controles, les transitions, la progression, les panneaux du menu, le volume
-et les zones cliquables apres redimensionnement.
-Ils ne valident pas l'affichage physique ni la sortie sonore.
+Les tests utilisent les pilotes SDL sans écran et des profils temporaires.
+Ils couvrent le combat, les bonus, les boss, la pause, le retour au menu, les
+réglages, les zones cliquables après redimensionnement, les sauvegardes et leur
+restauration. Ils vérifient aussi qu’une mission ne crée ni fenêtre ni processus
+supplémentaire. L’affichage physique et le son réel restent à tester sur une
+machine avec écran et haut-parleurs.
 
-## Licence
-
-Tous droits reserves. Projet de CYZ. Voir LICENSE.
-
-## Anciennes versions
+## Anciennes versions et licence
 
 Les sept versions historiques sont conservées dans [versions/](versions/README.md),
-avec leurs ressources et la référence de leur commit original.
+avec leurs ressources et leur commit d’origine. Les améliorations suivantes
+restent également accessibles dans l’historique Git.
+
+Tous droits réservés. Projet de CYZ. Voir LICENSE.
